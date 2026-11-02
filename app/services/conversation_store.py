@@ -8,12 +8,13 @@ context for the language model.
 Without this, every reply starts from scratch and the bot cannot remember
 anything the user said earlier in the same conversation.
 """
+
 import logging
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from app.models import Conversation
+from app.security import mask_phone
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,8 @@ def get_history(
     records = (
         db.query(Conversation)
         .filter(Conversation.phone_number == phone_number)
-        .order_by(Conversation.created_at.desc())
+        # id breaks ties: two rows can share a timestamp, and the history order must not depend on luck
+        .order_by(Conversation.created_at.desc(), Conversation.id.desc())
         .limit(limit)
         .all()
     )
@@ -54,10 +56,10 @@ def save_exchange(
     phone_number: str,
     user_message: str,
     bot_response: str,
-    intent: Optional[str] = None,
-    sentiment: Optional[str] = None,
-    sentiment_score: Optional[float] = None,
-    entities: Optional[dict] = None,
+    intent: str | None = None,
+    sentiment: str | None = None,
+    sentiment_score: float | None = None,
+    entities: dict | None = None,
     escalated: bool = False,
 ) -> Conversation:
     """
@@ -79,14 +81,12 @@ def save_exchange(
     db.add(record)
     db.commit()
     db.refresh(record)
-    logger.info("Saved conversation #%d for %s (intent=%s)", record.id, phone_number, intent)
+    logger.info(
+        "Saved conversation #%d for %s (intent=%s)", record.id, mask_phone(phone_number), intent
+    )
     return record
 
 
 def count_exchanges(db: Session, phone_number: str) -> int:
     """Return the total number of stored exchanges for *phone_number*."""
-    return (
-        db.query(Conversation)
-        .filter(Conversation.phone_number == phone_number)
-        .count()
-    )
+    return db.query(Conversation).filter(Conversation.phone_number == phone_number).count()

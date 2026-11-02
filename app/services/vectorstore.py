@@ -6,23 +6,24 @@ collection at startup (skipped if the collection is already populated).
 Queries embed the user's message, retrieve candidate documents, and then
 rerank them with Cohere for precision before returning formatted context.
 """
+
 import csv
 import logging
 from pathlib import Path
-from typing import Optional
 
-import cohere
 import chromadb
+import cohere
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_collection: Optional[chromadb.Collection] = None
+_collection: chromadb.Collection | None = None
 
 
 # ── Collection initialisation ─────────────────────────────────────────────────
+
 
 def get_collection() -> chromadb.Collection:
     """Return the shared ChromaDB collection, initialising it on first call."""
@@ -75,6 +76,7 @@ def _ingest(collection: chromadb.Collection, csv_path: str) -> None:
 
 # ── Query + rerank ────────────────────────────────────────────────────────────
 
+
 def query_vectorstore(query: str, n_results: int = 8) -> list[str]:
     """Return top n_results raw documents for the given query."""
     collection = get_collection()
@@ -113,7 +115,5 @@ def get_rag_context(query: str) -> str:
         logger.error("Cohere rerank failed (%s) — using raw ChromaDB order.", exc)
         top_docs = docs[: settings.cohere_rerank_top_n]
 
-    formatted = "\n\n".join(
-        f"參考資料{i}：{doc}" for i, doc in enumerate(top_docs, start=1)
-    )
+    formatted = "\n\n".join(f"參考資料{i}：{doc}" for i, doc in enumerate(top_docs, start=1))
     return f"相關參考資料：\n\n{formatted}"

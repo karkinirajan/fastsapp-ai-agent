@@ -1,7 +1,6 @@
 """Tests for app/services/summarizer.py (Feature 3 — conversation summarisation)"""
-from unittest.mock import MagicMock, patch
 
-import pytest
+from unittest.mock import MagicMock, patch
 
 
 def _make_history(n_pairs: int) -> list[dict]:
@@ -13,7 +12,7 @@ def _make_history(n_pairs: int) -> list[dict]:
     return history
 
 
-@patch("app.services.summarizer.OpenAI")
+@patch("app.services.summarizer.get_openai")
 def test_short_history_is_unchanged(MockOpenAI, mock_settings):
     """History at or below the threshold should be returned unmodified."""
     from app.services.summarizer import maybe_summarise_history
@@ -26,7 +25,7 @@ def test_short_history_is_unchanged(MockOpenAI, mock_settings):
     MockOpenAI.assert_not_called()
 
 
-@patch("app.services.summarizer.OpenAI")
+@patch("app.services.summarizer.get_openai")
 def test_long_history_triggers_summarisation(MockOpenAI, mock_settings):
     """History beyond the threshold triggers a summarisation API call."""
     from app.services.summarizer import maybe_summarise_history
@@ -54,7 +53,7 @@ def test_long_history_triggers_summarisation(MockOpenAI, mock_settings):
     assert "Summary of earlier conversation" in result[0]["content"]
 
 
-@patch("app.services.summarizer.OpenAI")
+@patch("app.services.summarizer.get_openai")
 def test_summarisation_failure_falls_back_to_truncation(MockOpenAI, mock_settings):
     """If the summarisation API call fails, we truncate to recent entries."""
     from app.services.summarizer import maybe_summarise_history
@@ -68,11 +67,12 @@ def test_summarisation_failure_falls_back_to_truncation(MockOpenAI, mock_setting
 
     # Should be the recent entries only (max_history_messages * 2 entries)
     from app.config import get_settings
+
     settings = get_settings()
     assert len(result) == settings.max_history_messages * 2
 
 
-@patch("app.services.summarizer.OpenAI")
+@patch("app.services.summarizer.get_openai")
 def test_summary_is_prepended_not_replacing_recent(MockOpenAI, mock_settings):
     """Recent messages must still be present after summarisation."""
     from app.services.summarizer import maybe_summarise_history

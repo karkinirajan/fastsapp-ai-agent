@@ -1,6 +1,6 @@
 """Tests for app/services/vectorstore.py"""
-import pytest
-from unittest.mock import MagicMock, patch, mock_open
+
+from unittest.mock import MagicMock, mock_open, patch
 
 
 @patch("app.services.vectorstore.chromadb")
@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch, mock_open
 def test_get_collection_ingests_when_empty(MockEF, MockChroma, mock_settings, tmp_path):
     """When the collection is empty, documents from the CSV are ingested."""
     import app.services.vectorstore as vs
+
     vs._collection = None  # reset module-level cache
 
     mock_col = MagicMock()
@@ -15,9 +16,11 @@ def test_get_collection_ingests_when_empty(MockEF, MockChroma, mock_settings, tm
     MockChroma.PersistentClient.return_value.get_or_create_collection.return_value = mock_col
 
     csv_content = "Question one answer one\nQuestion two answer two\n"
-    with patch("builtins.open", mock_open(read_data=csv_content)), \
-         patch("app.services.vectorstore.Path.exists", return_value=True):
-        col = vs._init_collection()
+    with (
+        patch("builtins.open", mock_open(read_data=csv_content)),
+        patch("app.services.vectorstore.Path.exists", return_value=True),
+    ):
+        vs._init_collection()
 
     mock_col.add.assert_called_once()
     vs._collection = None  # cleanup
@@ -28,6 +31,7 @@ def test_get_collection_ingests_when_empty(MockEF, MockChroma, mock_settings, tm
 def test_get_collection_skips_ingestion_when_populated(MockEF, MockChroma, mock_settings):
     """When the collection already has documents, ingestion is skipped."""
     import app.services.vectorstore as vs
+
     vs._collection = None
 
     mock_col = MagicMock()

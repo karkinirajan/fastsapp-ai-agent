@@ -10,7 +10,8 @@ The table schema extends the original 'conversations' table with:
 - entities      — JSON bag of extracted entities (name, date, service, …)
 - escalated     — True when the conversation was flagged for human follow-up
 """
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text, func
+
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()

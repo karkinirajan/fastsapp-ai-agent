@@ -1,4 +1,5 @@
 """Tests for app/services/sentiment_analyzer.py (Feature 4 — escalation)"""
+
 from unittest.mock import MagicMock
 
 
@@ -18,7 +19,7 @@ def test_escalation_footer_not_added_when_not_required():
 
 def test_escalation_footer_not_duplicated():
     """Calling twice with the same response should not double-append the footer."""
-    from app.services.sentiment_analyzer import maybe_add_escalation_footer, _ESCALATION_FOOTER
+    from app.services.sentiment_analyzer import _ESCALATION_FOOTER, maybe_add_escalation_footer
 
     once = maybe_add_escalation_footer("Response.", requires_escalation=True)
     twice = maybe_add_escalation_footer(once, requires_escalation=True)

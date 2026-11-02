@@ -13,12 +13,14 @@ In a production deployment the ``handle_escalation`` function can be
 extended to send an alert notification (e.g. email, Slack, PagerDuty)
 without changing the caller.
 """
+
 import logging
 
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import Conversation
+from app.security import mask_phone
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +64,7 @@ def handle_escalation(
         "ESCALATION flagged — conversation #%d from %s "
         "(sentiment_score=%.2f). Human follow-up required.",
         conversation_id,
-        phone_number,
+        mask_phone(phone_number),
         sentiment_score,
     )
 

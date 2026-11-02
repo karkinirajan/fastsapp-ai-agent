@@ -36,16 +36,18 @@ Twilio WhatsApp
 ```
 fastsapp-ai-agent/
 ├── main.py                       # FastAPI app + lifespan startup
-├── pyproject.toml                # Project metadata, pinned deps, pytest config
-├── requirements.txt              # Flat install list
+├── pyproject.toml  uv.lock       # Dependencies (uv), pytest and ruff config
+├── Dockerfile  compose.yaml      # Container image and app + PostgreSQL stack
 ├── app/
 │   ├── config.py                 # pydantic-settings centralised config
+│   ├── security.py               # Twilio signature check, sender format, phone masking
 │   ├── database.py               # SQLAlchemy engine/session (psycopg3 dialect)
 │   ├── models.py                 # Conversation ORM model
 │   ├── routes/
-│   │   ├── health.py             # GET /health
+│   │   ├── health.py             # GET /health (liveness), GET /ready (database + vectorstore)
 │   │   └── webhook.py            # POST /message
 │   └── services/
+│       ├── openai_client.py      # one shared, cached OpenAI client
 │       ├── ai_service.py         # OpenAI chat completion
 │       ├── vectorstore.py        # ChromaDB + Cohere rerank
 │       ├── conversation_store.py # Feature 1 — per-user history
@@ -55,7 +57,7 @@ fastsapp-ai-agent/
 │       └── entity_extractor.py   # Feature 5 — appointment entity flow
 ├── content/
 │   └── adventistFAQ.csv          # FAQ source data for RAG ingestion
-├── tests/                        # Full mocked test suite (41 tests)
+├── tests/                        # 106 tests (mocked services; real SQLite and PostgreSQL for the store)
 └── .env.example                  # Environment variable template
 ```
 
@@ -73,96 +75,38 @@ fastsapp-ai-agent/
 
 ---
 
-## Stack baseline
+## Security and privacy
 
-| Component | Recommended | Minimum | Notes |
-|---|---|---|---|
-| Python | **3.13.12** | 3.11 | 3.14.3 is latest stable but this repo suppresses a known Chroma deprecation on 3.14; 3.13.x is the safer production target |
-| PostgreSQL | **17** | 14 | 18 is the newest major. PostgreSQL has no official "LTS" label — each major release gets 5 years of support |
-| OpenAI model | `gpt-4o-mini` | — | Still documented with 128k context / 16,384 output tokens |
-| Cohere rerank | `rerank-v4.0-fast` | — | v4.0 is the current family (32k context, 100+ languages); use `rerank-v4.0-pro` for higher-quality ranking |
-| Embedding model | `text-embedding-3-small` | — | Current small embedding model |
-
----
-
-## Prerequisites
-
-- Python 3.13.12 (recommended) or 3.11+
-- PostgreSQL 17 (recommended) or 14+
-- Twilio account — use the [WhatsApp Sandbox](https://www.twilio.com/docs/whatsapp/sandbox) for dev, a WhatsApp-enabled number for production
-- OpenAI API key (`gpt-4o-mini` access)
-- Cohere API key
+- **Every webhook call must be signed by Twilio.** `POST /message` checks the `X-Twilio-Signature` header against your auth token and answers `403` otherwise. This matters because the `From` field decides who the bot writes to: without the check, anyone who could reach the URL could make your Twilio account message arbitrary numbers and spend your OpenAI and Cohere credit. Behind a TLS-terminating proxy set `PUBLIC_URL` (the address Twilio calls, e.g. `https://bot.example.com`) so the URL that was signed can be rebuilt. `VALIDATE_TWILIO_SIGNATURE=false` exists for local experiments only.
+- The sender must look like `whatsapp:+<number>`; anything else is a `400`.
+- **Logs carry no phone numbers (only the last four digits), no message text and no extracted names or dates.** Conversations are stored in the database in full, as before, so treat it as health-related personal data: restrict access, back it up, and decide how long you keep it.
+- The customer's message is sent to the intent classifier as its own turn and the classification instructions call it data, so a message cannot rewrite them (it used to be pasted into the instructions).
+- Errors from OpenAI, Cohere and the database are logged, not returned to callers.
 
 ---
 
 ## Setup
 
-### 1. Clone and create a virtual environment
+Requires [uv](https://docs.astral.sh/uv/) (Python 3.13) and PostgreSQL 17 (14 or later works).
 
 ```bash
 git clone https://github.com/kneeraazon404/fastsapp-ai-agent.git
 cd fastsapp-ai-agent
-python3.13 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install --upgrade pip
-```
-
-### 2. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Configure environment variables
-
-```bash
-cp .env.example .env
-# Fill in your API keys and database credentials
-```
-
-**Required variables:**
-
-| Variable | Description |
-|---|---|
-| `OPENAI_API_KEY` | OpenAI API key |
-| `COHERE_API_KEY` | Cohere API key |
-| `TWILIO_ACCOUNT_SID` | Twilio Account SID |
-| `TWILIO_AUTH_TOKEN` | Twilio Auth Token |
-| `TWILIO_NUMBER` | WhatsApp-enabled Twilio number (e.g. `+14155238886`) |
-| `DB_USER` | PostgreSQL username |
-| `DB_PASSWORD` | PostgreSQL password |
-| `DB_HOST` | PostgreSQL host (default: `localhost`) |
-| `DB_NAME` | Database name (default: `fastsapp_ai_agent`) |
-
-### 4. Create the database
-
-```bash
+uv sync
+cp .env.example .env              # fill in the keys and the database settings
 psql -U postgres -c "CREATE DATABASE fastsapp_ai_agent;"
+uv run uvicorn main:app --reload --port 8000
 ```
 
-The `conversations` table is created automatically on first startup.
+The `conversations` table is created on startup, and the FAQ CSV is ingested into ChromaDB on the first start (it calls the OpenAI embeddings API) and skipped afterwards.
 
-### 5. Start the server
+**Local Twilio testing:** run `ngrok http 8000`, set `https://<id>.ngrok.io/message` as the WhatsApp sandbox webhook, and set `PUBLIC_URL=https://<id>.ngrok.io` in `.env` so the signature can be verified.
 
-```bash
-uvicorn main:app --reload --port 8000
-```
-
-The FAQ CSV is ingested into ChromaDB on first startup and skipped on subsequent restarts.
-
-### 6. Expose for local Twilio testing
-
-```bash
-ngrok http 8000
-```
-
-Set `https://<ngrok-id>.ngrok.io/message` as the Twilio WhatsApp webhook URL.
+**Required variables:** `OPENAI_API_KEY`, `COHERE_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_NUMBER`, `DB_USER`, `DB_PASSWORD` (the rest have defaults; `.env.example` lists everything).
 
 ---
 
 ## Configuration reference
-
-All values have defaults. Override in `.env`:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -170,56 +114,20 @@ All values have defaults. Override in `.env`:
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model |
 | `MAX_COMPLETION_TOKENS` | `512` | Max reply tokens |
 | `TEMPERATURE` | `0.7` | Response creativity |
-| `COHERE_RERANK_MODEL` | `rerank-v4.0-fast` | Rerank model (`rerank-v4.0-pro` for higher quality) |
+| `OPENAI_TIMEOUT` | `30` | Seconds before an OpenAI call gives up |
+| `COHERE_RERANK_MODEL` | `rerank-v4.0-fast` | Rerank model |
 | `COHERE_RERANK_TOP_N` | `3` | Documents kept after rerank |
 | `VECTORSTORE_QUERY_N` | `8` | Candidate documents from ChromaDB |
+| `VALIDATE_TWILIO_SIGNATURE` | `true` | Refuse webhook calls Twilio did not sign |
+| `PUBLIC_URL` | empty | The address Twilio calls (needed behind a proxy) |
+| `DB_HOST` / `DB_PORT` / `DB_NAME` | `localhost` / `5432` / `fastsapp_ai_agent` | PostgreSQL |
 | `VECTORSTORE_PATH` | `./vectorstore` | ChromaDB persistence directory |
 | `CONTENT_CSV_PATH` | `./content/adventistFAQ.csv` | FAQ source data |
-| `MAX_HISTORY_MESSAGES` | `10` | Prior turns included in each prompt |
-| `SUMMARIZE_THRESHOLD` | `8` | Message pairs before summarisation triggers |
+| `MAX_HISTORY_MESSAGES` | `10` | Prior exchanges included in each prompt |
+| `SUMMARIZE_THRESHOLD` | `8` | Exchanges before summarisation triggers |
 | `SYSTEM_PROMPT` | (Chinese hospital persona) | Bot persona |
 | `ESCALATION_SENTIMENT_THRESHOLD` | `-0.5` | Score below which escalation fires |
-| `ESCALATION_CONTACT_PHONE` | `` | Phone to notify on escalation |
-
----
-
-## Dependency snapshot
-
-**Runtime**
-
-| Package | Version |
-|---|---|
-| `fastapi` | 0.135.3 |
-| `uvicorn[standard]` | 0.44.0 |
-| `python-multipart` | 0.0.24 |
-| `openai` | 2.30.0 |
-| `cohere` | 5.21.1 |
-| `chromadb` | 1.5.6 |
-| `sqlalchemy` | 2.0.49 |
-| `psycopg[binary]` | 3.3.3 |
-| `pydantic` | 2.12.5 |
-| `pydantic-settings` | 2.13.1 |
-| `twilio` | 9.10.4 |
-
-**Dev / test**
-
-| Package | Version |
-|---|---|
-| `pytest` | 9.0.2 |
-| `pytest-asyncio` | 1.3.0 |
-| `httpx` | 0.28.1 |
-
-All packages are pinned to their current latest versions as of April 2026.
-
----
-
-## Testing
-
-```bash
-pytest tests/ -v
-```
-
-41 tests, no external services required — all API calls are mocked. Deprecation warnings in project code are treated as hard errors; a targeted suppression is in place for the known `asyncio.iscoroutinefunction` deprecation in chromadb's telemetry internals (third-party, not ours). This is the main reason **Python 3.13.x** is the recommended production target over 3.14.
+| `ESCALATION_CONTACT_PHONE` | empty | Phone to notify on escalation (not wired to anything yet: it only logs) |
 
 ---
 
@@ -227,34 +135,43 @@ pytest tests/ -v
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/health` | Returns `{"status": "ok"}` |
-| `POST` | `/message` | Twilio webhook — `Body` + `From` form fields |
+| `GET` | `/health` | Liveness: `{"status": "ok"}`, touches no dependency |
+| `GET` | `/ready` | Readiness: `200` when the database answers and the FAQ vectorstore holds documents, else `503` with the state of each |
+| `POST` | `/message` | Twilio webhook: `Body` + `From` form fields, signed by Twilio |
 
 ---
 
-## Production deployment
+## Testing
 
-1. Use managed PostgreSQL 17 (e.g. Neon, Supabase, RDS).
-2. Mount persistent storage for `VECTORSTORE_PATH`.
-3. Store all secrets in your platform's secret manager — never commit `.env`.
-4. Run behind TLS (nginx, Caddy, or platform ingress).
-5. Multi-worker: `uvicorn main:app --workers 2 --host 0.0.0.0 --port 8000`
-6. Stay on Python **3.13.x** in production until you have fully validated 3.14 across the whole stack.
+```bash
+uv run pytest                      # 106 tests; no external services needed
+docker run -d --name fsa-test-db -e POSTGRES_PASSWORD=demo-only -p 15434:5432 postgres:17-alpine
+export TEST_DATABASE_URL=postgresql+psycopg://postgres:demo-only@127.0.0.1:15434/postgres
+uv run pytest                      # also runs the 5 PostgreSQL integration tests (they skip without it)
+uv run ruff check . && uv run ruff format --check .
+```
+
+OpenAI, Cohere, ChromaDB and Twilio are mocked. The conversation store is tested on a real database engine (SQLite in memory), and the webhook end to end on PostgreSQL with a really signed request. Deprecation warnings in project code are errors; one targeted suppression remains for chromadb's own `asyncio.iscoroutinefunction` use.
 
 ---
 
-## Notable upgrade decisions
+## Deployment
 
-**psycopg2 → psycopg3** — actively maintained successor with native binary protocol and Python 3.12+ improvements. SQLAlchemy 2.x supports it via the `postgresql+psycopg` dialect.
+```bash
+cp .env.example .env               # set the keys and DB_PASSWORD
+docker compose up -d --build       # the bot (port 8000) and PostgreSQL 17, each with a volume
+```
 
-**openai SDK 1.x → 2.x** — `max_tokens` replaced by `max_completion_tokens`. Chat Completions remains available; the OpenAI Responses API is the recommended path for new integrations.
+The image runs as a non-root user and has a health check. Put TLS in front (nginx, Caddy or your platform's ingress) and set `PUBLIC_URL`. Keep `VECTORSTORE_PATH` on persistent storage and secrets in your platform's secret manager. For more than one worker: `uvicorn main:app --workers 2`.
 
-**rerank-multilingual-v3.0 → rerank-v4.0-fast** — Cohere v4.0 is the current rerank family: unified multilingual model (no separate variant needed), 32k context, state-of-the-art on BEIR and domain-specific retrieval including hospitality/healthcare.
+---
 
-**PostgreSQL versioning** — PostgreSQL does not use an "LTS" label. Each major version receives 5 years of community support. PostgreSQL 17 is the recommended baseline; 18 is the newest major.
+## Versions
+
+[VERSIONS.md](./VERSIONS.md). What changed and what needs your attention: [work-done.md](./work-done.md).
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License. See [LICENSE](LICENSE).

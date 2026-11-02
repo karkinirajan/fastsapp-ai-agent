@@ -5,12 +5,14 @@ All external dependencies (OpenAI, Cohere, ChromaDB, Twilio, database) are
 mocked here so that the test suite runs without any network access or
 running services.
 """
-import pytest
+
 from unittest.mock import MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 
-
 # ── Settings fixture ──────────────────────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def mock_settings(monkeypatch):
@@ -33,6 +35,8 @@ def mock_settings(monkeypatch):
         twilio_account_sid="ACtest",
         twilio_auth_token="test-token",
         twilio_number="+14155238886",
+        validate_twilio_signature=False,  # tests/test_security.py turns it on
+        public_url="",
         db_user="testuser",
         db_password="testpass",
         db_host="localhost",
@@ -49,6 +53,7 @@ def mock_settings(monkeypatch):
 
     # Clear lru_cache so the patched version takes effect
     from app import config
+
     config.get_settings.cache_clear()
 
     monkeypatch.setattr("app.config.get_settings", lambda: test_settings)
@@ -61,6 +66,8 @@ def mock_settings(monkeypatch):
         "app.services.sentiment_analyzer",
         "app.services.summarizer",
         "app.services.vectorstore",
+        "app.services.openai_client",
+        "app.security",
         "app.routes.webhook",
         "app.database",
     ]:
@@ -74,6 +81,7 @@ def mock_settings(monkeypatch):
 
 # ── Database fixture ──────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def mock_db():
     """Return a MagicMock that quacks like a SQLAlchemy Session."""
@@ -82,6 +90,7 @@ def mock_db():
 
 # ── FastAPI test client ───────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def client(mock_db):
     """
@@ -89,10 +98,10 @@ def client(mock_db):
     and all external services mocked out.
     """
     # Import here to avoid module-level side effects before mocking
-    with patch("app.database.init_db"), \
-         patch("app.services.vectorstore.get_collection"):
-        from main import app
+    with patch("app.database.init_db"), patch("app.services.vectorstore.get_collection"):
         from app.database import get_db
+        from main import app
+
         app.dependency_overrides[get_db] = lambda: mock_db
         with TestClient(app, raise_server_exceptions=True) as c:
             yield c

@@ -12,11 +12,11 @@ This solves two problems:
 The summarised history is injected as a single system-style ``user`` turn
 so that OpenAI sees it as background knowledge rather than active dialogue.
 """
+
 import logging
 
-from openai import OpenAI
-
 from app.config import get_settings
+from app.services.openai_client import get_openai
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +64,9 @@ def maybe_summarise_history(
 def _summarise(history: list[dict[str, str]]) -> str:
     """Call OpenAI to produce a short summary of *history*."""
     settings = get_settings()
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = get_openai()
 
-    transcript = "\n".join(
-        f"{msg['role'].upper()}: {msg['content']}" for msg in history
-    )
+    transcript = "\n".join(f"{msg['role'].upper()}: {msg['content']}" for msg in history)
     prompt = _SUMMARISE_PROMPT.format(transcript=transcript)
 
     try:

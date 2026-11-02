@@ -5,6 +5,7 @@ All values are loaded from environment variables (or a .env file).
 Call get_settings() anywhere in the codebase; the result is cached so
 the .env file is parsed only once.
 """
+
 from functools import lru_cache
 
 from pydantic import field_validator
@@ -25,6 +26,7 @@ class Settings(BaseSettings):
     # max_completion_tokens replaces the deprecated max_tokens in openai v2
     max_completion_tokens: int = 512
     temperature: float = 0.7
+    openai_timeout: float = 30.0
 
     # ── Cohere ────────────────────────────────────────────────────────────────
     cohere_api_key: str
@@ -36,6 +38,11 @@ class Settings(BaseSettings):
     twilio_account_sid: str
     twilio_auth_token: str
     twilio_number: str  # Twilio WhatsApp sandbox/production number, e.g. +14155238886
+    # Twilio signs every webhook call; requests without a valid signature are refused (403).
+    # Set PUBLIC_URL to the address Twilio calls (e.g. https://bot.example.com) when the app runs
+    # behind a proxy. Turn validation off only for local experiments.
+    validate_twilio_signature: bool = True
+    public_url: str = ""
 
     # ── Database ──────────────────────────────────────────────────────────────
     db_user: str

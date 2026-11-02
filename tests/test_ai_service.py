@@ -1,6 +1,8 @@
 """Tests for app/services/ai_service.py"""
-import pytest
+
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 def _make_completion(content: str):
@@ -14,7 +16,7 @@ def _make_completion(content: str):
     return completion
 
 
-@patch("app.services.ai_service.OpenAI")
+@patch("app.services.ai_service.get_openai")
 def test_generate_response_basic(MockOpenAI, mock_settings):
     """Standard call returns the model's reply."""
     from app.services.ai_service import generate_response
@@ -29,7 +31,7 @@ def test_generate_response_basic(MockOpenAI, mock_settings):
     mock_client.chat.completions.create.assert_called_once()
 
 
-@patch("app.services.ai_service.OpenAI")
+@patch("app.services.ai_service.get_openai")
 def test_generate_response_includes_history(MockOpenAI, mock_settings):
     """History turns are included in the messages sent to OpenAI."""
     from app.services.ai_service import generate_response
@@ -50,7 +52,7 @@ def test_generate_response_includes_history(MockOpenAI, mock_settings):
     assert roles == ["system", "user", "assistant", "user"]
 
 
-@patch("app.services.ai_service.OpenAI")
+@patch("app.services.ai_service.get_openai")
 def test_generate_response_injects_rag_context(MockOpenAI, mock_settings):
     """RAG context is appended to the system prompt."""
     from app.services.ai_service import generate_response
@@ -67,7 +69,7 @@ def test_generate_response_injects_rag_context(MockOpenAI, mock_settings):
     assert "REFERENCE DATA" in system_msg["content"]
 
 
-@patch("app.services.ai_service.OpenAI")
+@patch("app.services.ai_service.get_openai")
 def test_generate_response_propagates_api_error(MockOpenAI, mock_settings):
     """API errors bubble up to the caller so the webhook can use a fallback."""
     from app.services.ai_service import generate_response

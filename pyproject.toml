@@ -2,46 +2,43 @@
 name = "fastsapp-ai-agent"
 version = "2.0.0"
 description = "AI-powered WhatsApp customer-service bot with RAG, intent routing, and agentic features"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 
-# ── Runtime dependencies (pinned to last-known-good versions) ─────────────────
-# Upgrade with: pip install --upgrade <package> then re-run pytest to validate.
-#
-# ⚠  chromadb 1.5.6 pins its opentelemetry transitive deps:
-#    - opentelemetry-api  1.40.0 → requires importlib-metadata <8.8 & protobuf <7
-#    - opentelemetry-proto 1.40.0 → requires protobuf <7
-#    Those ceilings (importlib-metadata, protobuf, pydantic-core) cannot be
-#    raised until chromadb ships an opentelemetry upgrade.
 dependencies = [
     # Web
-    "fastapi==0.135.3",
-    "uvicorn[standard]==0.44.0",
-    "python-multipart==0.0.24",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",  # Form() parsing
     # AI
-    "openai==2.30.0",
-    "cohere==5.21.1",
-    "chromadb==1.5.6",
-    # Database — psycopg3 (successor to psycopg2; use postgresql+psycopg dialect)
-    "sqlalchemy==2.0.49",
-    "psycopg[binary]==3.3.3",
+    "openai>=1.50",
+    "cohere>=5.11",
+    "chromadb>=1.0",
+    # Database: psycopg 3 (the postgresql+psycopg dialect)
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
     # Config
-    "pydantic==2.12.5",
-    "pydantic-settings==2.13.1",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.5",
     # Messaging
-    "twilio==9.10.4",
+    "twilio>=9.3",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "pytest==9.0.2",
-    "pytest-asyncio==1.3.0",
-    "httpx==0.28.1",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6",
+    "httpx>=0.27",
+    "ruff>=0.8",
 ]
 
 # ── pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--cov=app --cov=main --cov-report=term-missing"
+markers = ["postgres: needs TEST_DATABASE_URL (a PostgreSQL the tests may create schemas in)"]
 
 # Python's warnings filter list is processed front-to-back; each new
 # warnings.filterwarnings() call inserts at the FRONT, so the LAST entry
@@ -61,3 +58,11 @@ filterwarnings = [
     # MUST be last so it takes precedence over the error rules above.
     "ignore:.*asyncio.iscoroutinefunction.*is deprecated:DeprecationWarning",
 ]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+# FastAPI declares dependencies as defaults: def view(db: Session = Depends(get_db))
+ignore = ["B008"]

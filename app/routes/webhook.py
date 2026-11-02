@@ -17,6 +17,7 @@ The sender's phone number is taken directly from the ``From`` form field.
 8. Persist escalation flag if triggered (Feature 4).
 9. Send reply via Twilio Messaging API.
 """
+
 import logging
 
 from fastapi import APIRouter, Depends, Form, HTTPException
@@ -26,6 +27,7 @@ from twilio.rest import Client as TwilioClient
 
 from app.config import get_settings
 from app.database import get_db
+from app.security import is_whatsapp_number, mask_phone, verify_twilio_request
 from app.services import (
     ai_service,
     conversation_store,
@@ -39,13 +41,11 @@ from app.services import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_FALLBACK_RESPONSE = (
-    "抱歉，系統暫時出現問題，請稍後再試。"
-    "如有緊急需要，請致電 (852) 2782 2202。"
-)
+_FALLBACK_RESPONSE = "抱歉，系統暫時出現問題，請稍後再試。如有緊急需要，請致電 (852) 2782 2202。"
 
 
 # ── Twilio helper ─────────────────────────────────────────────────────────────
+
 
 def _send_whatsapp_message(to: str, body: str) -> None:
     """Send *body* to *to* via Twilio. Raises on failure."""
@@ -55,52 +55,59 @@ def _send_whatsapp_message(to: str, body: str) -> None:
     to_number = to if to.startswith("whatsapp:") else f"whatsapp:{to}"
     try:
         msg = client.messages.create(from_=from_number, body=body, to=to_number)
-        logger.info("Sent message to %s (sid=%s)", to_number, msg.sid)
+        logger.info("Sent message to %s (sid=%s)", mask_phone(to_number), msg.sid)
     except Exception as exc:
-        logger.error("Twilio send failed to %s: %s", to_number, exc)
+        logger.error("Twilio send failed to %s: %s", mask_phone(to_number), exc)
         raise
 
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
 
-@router.post("/message", tags=["webhook"])
-async def receive_message(
+
+@router.post("/message", tags=["webhook"], dependencies=[Depends(verify_twilio_request)])
+def receive_message(
     Body: str = Form(...),
     From: str = Form(...),
     db: Session = Depends(get_db),
 ) -> str:
     """
-    Handle an inbound WhatsApp message forwarded by Twilio.
+    Handle an inbound WhatsApp message forwarded (and signed) by Twilio.
 
     ``Body`` — the message text.
     ``From`` — the sender's number in ``whatsapp:+XXXXXXXXXXX`` format.
+
+    A plain ``def``: the handler makes blocking OpenAI, Cohere and database calls, which as an
+    ``async def`` stalled every other request. FastAPI runs it in a worker thread.
     """
     user_phone = From
     user_message = Body.strip()
 
+    if not is_whatsapp_number(user_phone):
+        raise HTTPException(status_code=400, detail="Invalid sender")
+
     if not user_message:
-        logger.warning("Empty message received from %s — ignoring.", user_phone)
+        logger.warning("Empty message received from %s — ignoring.", mask_phone(user_phone))
         return ""
 
     settings = get_settings()
-    logger.info("Received message from %s: '%s…'", user_phone, user_message[:60])
+    # Health information: log the size of the message, never its text.
+    logger.info(
+        "Received a %d-character message from %s", len(user_message), mask_phone(user_phone)
+    )
 
     # ── Step 1: Classify intent, sentiment, entities ──────────────────────────
     classification = intent_classifier.classify_message(user_message)
     logger.info(
-        "[%s] intent=%s sentiment=%s(%.2f) escalate=%s entities=%s",
-        user_phone,
+        "[%s] intent=%s sentiment=%s(%.2f) escalate=%s",
+        mask_phone(user_phone),
         classification.intent,
         classification.sentiment,
         classification.sentiment_score,
         classification.requires_escalation,
-        classification.entities,
     )
 
     # ── Step 2: Load conversation history ────────────────────────────────────
-    history = conversation_store.get_history(
-        db, user_phone, limit=settings.max_history_messages
-    )
+    history = conversation_store.get_history(db, user_phone, limit=settings.max_history_messages)
 
     # ── Step 3: Summarise if history is long ─────────────────────────────────
     history = summarizer.maybe_summarise_history(history)
@@ -173,7 +180,7 @@ async def receive_message(
     try:
         _send_whatsapp_message(user_phone, bot_response)
     except Exception as exc:
-        logger.error("Could not deliver response to %s: %s", user_phone, exc)
-        raise HTTPException(status_code=500, detail="Failed to send WhatsApp response")
+        logger.error("Could not deliver response to %s: %s", mask_phone(user_phone), exc)
+        raise HTTPException(status_code=500, detail="Failed to send WhatsApp response") from exc
 
     return ""

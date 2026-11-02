@@ -1,7 +1,6 @@
 """Tests for app/services/entity_extractor.py (Feature 5 — entity extraction)"""
-from unittest.mock import MagicMock, patch
 
-import pytest
+from unittest.mock import MagicMock, patch
 
 
 def _mock_client(reply: str) -> MagicMock:
@@ -16,7 +15,7 @@ def _mock_client(reply: str) -> MagicMock:
     return client
 
 
-@patch("app.services.entity_extractor.OpenAI")
+@patch("app.services.entity_extractor.get_openai")
 def test_full_entities_generate_confirmation(MockOpenAI, mock_settings):
     """When all required entities are present, a confirmation prompt is used."""
     from app.services.entity_extractor import generate_appointment_response
@@ -24,7 +23,12 @@ def test_full_entities_generate_confirmation(MockOpenAI, mock_settings):
     MockOpenAI.return_value = _mock_client("已確認預約，請致電確認詳情。")
 
     result = generate_appointment_response(
-        entities={"name": "李小明", "date": "2024-03-20", "time": "14:00", "service_type": "全身體檢"},
+        entities={
+            "name": "李小明",
+            "date": "2024-03-20",
+            "time": "14:00",
+            "service_type": "全身體檢",
+        },
         history=[],
     )
 
@@ -36,7 +40,7 @@ def test_full_entities_generate_confirmation(MockOpenAI, mock_settings):
     assert "缺少" not in last_user_msg
 
 
-@patch("app.services.entity_extractor.OpenAI")
+@patch("app.services.entity_extractor.get_openai")
 def test_missing_entities_generate_follow_up_question(MockOpenAI, mock_settings):
     """When entities are incomplete, a follow-up question prompt is used."""
     from app.services.entity_extractor import generate_appointment_response
@@ -54,7 +58,7 @@ def test_missing_entities_generate_follow_up_question(MockOpenAI, mock_settings)
     assert "缺少" in last_user_msg  # missing-fields path
 
 
-@patch("app.services.entity_extractor.OpenAI")
+@patch("app.services.entity_extractor.get_openai")
 def test_empty_entities_still_asks_follow_up(MockOpenAI, mock_settings):
     """Empty entity dict should trigger the follow-up path."""
     from app.services.entity_extractor import generate_appointment_response
@@ -65,7 +69,7 @@ def test_empty_entities_still_asks_follow_up(MockOpenAI, mock_settings):
     assert result  # non-empty response
 
 
-@patch("app.services.entity_extractor.OpenAI")
+@patch("app.services.entity_extractor.get_openai")
 def test_api_failure_returns_empty_string(MockOpenAI, mock_settings):
     """API errors return '' so the caller can fall back to the standard path."""
     from app.services.entity_extractor import generate_appointment_response
@@ -81,7 +85,7 @@ def test_api_failure_returns_empty_string(MockOpenAI, mock_settings):
     assert result == ""
 
 
-@patch("app.services.entity_extractor.OpenAI")
+@patch("app.services.entity_extractor.get_openai")
 def test_history_is_included_in_messages(MockOpenAI, mock_settings):
     """Prior conversation history is prepended to the messages list."""
     from app.services.entity_extractor import generate_appointment_response

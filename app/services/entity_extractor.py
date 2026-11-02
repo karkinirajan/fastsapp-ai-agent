@@ -16,11 +16,11 @@ Entities are extracted by the intent classifier in a single upstream API
 call (see ``intent_classifier.py``) so this module avoids a redundant call.
 It only calls the OpenAI API to *generate the appointment-specific reply*.
 """
+
 import logging
 
-from openai import OpenAI
-
 from app.config import get_settings
+from app.services.openai_client import get_openai
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ def generate_appointment_response(
     back to the standard response path.
     """
     settings = get_settings()
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = get_openai()
 
     missing = [f for f in _REQUIRED_FIELDS if not entities.get(f)]
 

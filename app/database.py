@@ -10,6 +10,7 @@ The engine is built lazily from settings so that importing this module
 during tests does not attempt a database connection unless a session is
 actually requested.
 """
+
 from collections.abc import Generator
 
 from sqlalchemy import create_engine
@@ -27,7 +28,7 @@ def _get_engine() -> Engine:
     if _engine is None:
         s = get_settings()
         url = URL.create(
-            drivername="postgresql+psycopg",   # psycopg3 dialect
+            drivername="postgresql+psycopg",  # psycopg3 dialect
             username=s.db_user,
             password=s.db_password,
             host=s.db_host,
@@ -49,7 +50,7 @@ def _get_session_factory() -> sessionmaker:
     return _SessionLocal
 
 
-def get_db() -> Generator[Session, None, None]:
+def get_db() -> Generator[Session]:
     """FastAPI dependency that yields a database session per request."""
     factory = _get_session_factory()
     db: Session = factory()

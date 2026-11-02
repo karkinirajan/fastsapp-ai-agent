@@ -1,6 +1,7 @@
 """
 Entry point — run with:  uvicorn main:app --reload
 """
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up…")
     try:
         from app.database import init_db
+
         init_db()
         logger.info("Database schema ready.")
     except Exception as exc:
@@ -33,6 +35,7 @@ async def lifespan(app: FastAPI):
 
     try:
         from app.services.vectorstore import get_collection
+
         col = get_collection()
         logger.info("Vectorstore ready (%d documents).", col.count())
     except Exception as exc:
